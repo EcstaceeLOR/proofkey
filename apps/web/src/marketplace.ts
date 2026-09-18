@@ -297,24 +297,14 @@ export class MarketplaceClient {
       'MachineTariffUpdated',
       'MachineStatusUpdated',
     ].map((name) => machineRegistryEvents.getEvent(name)!.topicHash);
-    const offerTopic =
-      paymentRegistryEvents.getEvent('MachineOfferSet')!.topicHash;
-    const [machineLogs, offerLogs] = await Promise.all([
-      this.creditcoin.getLogs({
-        address: this.config.machineRegistryAddress,
-        topics: [machineTopics],
-        fromBlock: this.config.creditcoinRegistryDeploymentBlock,
-        toBlock: creditcoinBlock,
-      }),
-      this.sepolia.getLogs({
-        address: this.config.registryAddress,
-        topics: [offerTopic],
-        fromBlock: this.config.sepoliaRegistryDeploymentBlock,
-        toBlock: sepoliaBlock,
-      }),
-    ]);
+    const machineLogs = await this.creditcoin.getLogs({
+      address: this.config.machineRegistryAddress,
+      topics: [machineTopics],
+      fromBlock: this.config.creditcoinRegistryDeploymentBlock,
+      toBlock: creditcoinBlock,
+    });
     const machines = replayMachineLogs(machineLogs);
-    const offers = replayOfferLogs(offerLogs);
+    const offers = new Map<string, RegistryOffer>();
     const machineRegistry = new Contract(
       this.config.machineRegistryAddress,
       machineAbi,
@@ -339,6 +329,8 @@ export class MarketplaceClient {
         });
       }),
     );
+    // Avoid a deep Sepolia eth_getLogs backfill here. Public RPC endpoints may
+    // reject archive log scans, and the current offer state is authoritative.
     await Promise.all(
       [...machines.keys()].map(async (machineId) => {
         const current =
@@ -353,7 +345,7 @@ export class MarketplaceClient {
           beneficiary: getAddress(current.beneficiary as string),
           pricePerSecond: current.pricePerSecond as bigint,
           active: current.active as boolean,
-          updatedAtBlock: offers.get(machineId)?.updatedAtBlock ?? sepoliaBlock,
+          updatedAtBlock: sepoliaBlock,
         });
       }),
     );
